@@ -19,14 +19,12 @@ class PositionalEncoding(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     def __init__(self,key_size,value_size,query_size,num_heads,num_hiddens,dropout,bias=False):
-        #后续的调试中可以让隐藏层大小不一样
         super(MultiHeadAttention, self).__init__()
         self.num_heads=num_heads
         self.attention=DotProductAttention(dropout)
         self.w_q=nn.Linear(query_size,num_hiddens,bias=bias)
         self.w_k=nn.Linear(key_size,num_hiddens,bias=bias)
         self.w_v=nn.Linear(value_size,num_hiddens,bias=bias)
-        # self.w_o=nn.Linear(num_hiddens,num_hiddens,bias=bias)
         self.w_o = nn.Linear(num_hiddens, query_size, bias=bias)
     def forward(self,queries,keys,values,valid_lens):
         queries=transpose_qkv(self.w_q(queries),self.num_heads)
@@ -46,50 +44,6 @@ class AddNorm(nn.Module):
         self.layernorm=nn.LayerNorm(normalized_shape)
     def forward(self,x,y):
         return self.layernorm(self.dropout(y)+x)
-
-class AFF(nn.Module):
-    '''
-    多特征融合 AFF
-    '''
-
-    def __init__(self, channels=64, r=4):
-        super(AFF, self).__init__()
-        inter_channels = int(channels // r)
-
-        self.local_att = nn.Sequential(
-            nn.Conv1d(channels, inter_channels, kernel_size=1),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(inter_channels, channels, kernel_size=1),
-        )
-
-        self.global_att = nn.Sequential(
-            nn.AdaptiveAvgPool1d(1),
-            nn.Conv1d(channels, inter_channels, kernel_size=1),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(inter_channels, channels, kernel_size=1),
-        )
-
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x, residual):
-        xa = x + residual
-        xl = self.local_att(xa)
-        xg = self.global_att(xa)
-        xlg = xl + xg
-        wei = self.sigmoid(xlg)
-        xo = 2 * x * wei + 2 * residual * (1 - wei)
-        return xo
-
-class AddNorm2(nn.Module):
-    '''加法和层归一化层'''
-    def __init__(self,normalized_shape,dropout):
-        super(AddNorm2, self).__init__()
-        self.dropout=nn.Dropout(dropout)
-        self.aff=AFF(128)
-        self.layernorm=nn.LayerNorm(normalized_shape)
-    def forward(self,x,y):
-        return self.layernorm(self.dropout(self.aff(x.permute(0,2,1),y.permute(0,2,1)).permute(0,2,1)))
-
 
 class PositionWiseFFN(nn.Module):
     '''逐位前馈网络'''
